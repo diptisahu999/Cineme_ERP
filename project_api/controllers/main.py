@@ -308,6 +308,17 @@ class ProjectApiController(http.Controller):
                 return _error(f"Project with id={project_id} not found.", status=404)
 
             project_name = project.name
+            
+            # Prevent PostgreSQL foreign key constraint violation:
+            # "update or delete on table account_analytic_account violates foreign key constraint"
+            # by deleting related analytic lines (e.g. timesheets) first.
+            if getattr(project, 'analytic_account_id', False):
+                lines = request.env['account.analytic.line'].with_user(SUPERUSER_ID).search([
+                    ('account_id', '=', project.analytic_account_id.id)
+                ])
+                if lines:
+                    lines.unlink()
+
             project.unlink()
             _logger.info("project_api: Deleted project id=%s name=%s", project_id, project_name)
             return _success({'deleted': True, 'id': project_id, 'name': project_name})
