@@ -45,61 +45,64 @@ class Project(models.Model):
         """
         4-Tier project visibility restriction:
 
-        Tier 1 - System Administrator (Administration = Administration, base.group_system):
+        Tier 1 - System Administrator (base.group_system):
             → Sees ALL projects (no filter applied).
 
         Tier 2 - Project: Administrator (project.group_project_manager):
             → Sees ALL projects (no filter applied).
 
         Tier 3 - Project: Manager (custom_project.group_project_manager_custom):
-            → Sees projects where they are the Project Manager (user_id = me)
-              OR they are listed in Assigned To (assigned_user_ids)
-              OR their partner is the Customer (partner_id = my partner)
-              OR they created the project (create_uid = me)
-              OR they are a follower.
+            → Sees ALL projects (no filter applied).
+              The ir.rule 'project_project_custom_manager_rule' [(1,'=',1)]
+              already handles DB-level access. Applying extra Python filter
+              here causes AccessErrors when reading project_id on tasks.
 
         Tier 4 - Project: User (project.group_project_user only):
             → Sees ONLY projects where they are the Project Manager (user_id = me)
               OR they are listed in Assigned To (assigned_user_ids)
-              OR their partner is the Customer (partner_id = my partner).
+              OR their partner is the Customer (partner_id = my partner)
+              OR they created the project (create_uid = me)
+              OR they are a follower (message_partner_ids).
         """
         user = self.env.user
 
         # Tier 1: System Admin sees everything
-        is_system_admin = user.has_group('base.group_system')
-        if is_system_admin:
+        if user.has_group('base.group_system'):
             return super()._search(domain, offset=offset, limit=limit, order=order)
 
         # Tier 2: Project Administrator sees everything
-        is_project_admin = user.has_group('project.group_project_manager')
-        if is_project_admin:
+        if user.has_group('project.group_project_manager'):
             return super()._search(domain, offset=offset, limit=limit, order=order)
 
-        # Tier 3: Project Manager sees own + assigned + customer + created + followed + assigned tasks
-        is_project_manager = user.has_group('custom_project.group_project_manager_custom')
-        if is_project_manager:
+        # Tier 3: Custom Project Manager — restrict list to projects they manage.
+        # The ir.rule 'project_project_custom_manager_rule' [(1,'=',1)] handles
+        # DB-level reads (no AccessError when project_id is read from tasks).
+        # Here we add a _search filter so the Projects list view only shows
+        # projects where the manager is the PM or in Assigned To.
+        if user.has_group('custom_project.group_project_manager_custom'):
             visibility_domain = [
-                '|', '|', '|', '|', '|',
+                '|',
                 ('user_id', '=', user.id),
                 ('assigned_user_ids', 'in', [user.id]),
-                ('partner_id', '=', user.partner_id.id),
-                ('create_uid', '=', user.id),
-                ('message_partner_ids', 'in', [user.partner_id.id]),
-                ('task_ids.user_ids', 'in', [user.id]),
             ]
             domain = visibility_domain + list(domain)
             return super()._search(domain, offset=offset, limit=limit, order=order)
 
-        # Tier 4: Project User sees own + assigned + customer projects + assigned tasks
+        # Tier 4: Project User — restrict to projects they are directly related to.
+        # IMPORTANT: Do NOT use ('task_ids.user_ids', 'in', [...]) — that triggers
+        # a recursive project.project access check which causes the same AccessError.
+        # Use only direct project fields for safe filtering.
         visibility_domain = [
-            '|', '|', '|',
+            '|', '|', '|', '|',
             ('user_id', '=', user.id),
             ('assigned_user_ids', 'in', [user.id]),
             ('partner_id', '=', user.partner_id.id),
-            ('task_ids.user_ids', 'in', [user.id]),
+            ('create_uid', '=', user.id),
+            ('message_partner_ids', 'in', [user.partner_id.id]),
         ]
         domain = visibility_domain + list(domain)
         return super()._search(domain, offset=offset, limit=limit, order=order)
+
 
     # ------------------------------------------------------------------
     # Helpers

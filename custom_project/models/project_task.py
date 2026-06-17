@@ -1,4 +1,7 @@
 from odoo import models, fields, api
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 class ProjectTask(models.Model):
@@ -10,6 +13,55 @@ class ProjectTask(models.Model):
     def _compute_timesheet_total(self):
         for rec in self:
             rec.timesheet_total = sum(rec.timesheet_ids.mapped('unit_amount'))
+
+    @api.model
+    def _search(self, domain, offset=0, limit=None, order=None):
+        """
+        Task visibility restriction:
+
+        Tier 1 - System Administrator: Sees ALL tasks.
+        Tier 2 - Project Administrator: Sees ALL tasks.
+
+        Tier 3 - Custom Project Manager:
+            → Sees tasks assigned directly to them (user_ids includes them).
+            → Sees ALL tasks in projects they manage:
+                  projects where they are Project Manager (user_id = me)
+                  OR they are in Assigned To (assigned_user_ids).
+            This lets managers track their own work AND monitor their team's tasks
+            without seeing tasks from projects they have no relation to.
+
+        Tier 4 - Project User:
+            → Sees ONLY tasks assigned directly to them (user_ids includes them).
+        """
+        user = self.env.user
+
+        # Tier 1 & 2: Admins see everything
+        if user.has_group('base.group_system') or user.has_group('project.group_project_manager'):
+            return super()._search(domain, offset=offset, limit=limit, order=order)
+
+        # Tier 3: Custom Project Manager
+        # Sees their own tasks + ALL tasks in projects they manage.
+        # Uses sudo() to safely fetch managed project IDs without triggering
+        # recursive project.project access checks inside task._search.
+        if user.has_group('custom_project.group_project_manager_custom'):
+            managed_project_ids = self.env['project.project'].sudo().search([
+                '|',
+                ('user_id', '=', user.id),
+                ('assigned_user_ids', 'in', [user.id]),
+            ]).ids
+
+            visibility_domain = [
+                '|',
+                ('user_ids', 'in', [user.id]),          # tasks assigned to the manager
+                ('project_id', 'in', managed_project_ids),  # all tasks in managed projects
+            ]
+            domain = visibility_domain + list(domain)
+            return super()._search(domain, offset=offset, limit=limit, order=order)
+
+        # Tier 4: Project User — only see tasks assigned directly to them
+        visibility_domain = [('user_ids', 'in', [user.id])]
+        domain = visibility_domain + list(domain)
+        return super()._search(domain, offset=offset, limit=limit, order=order)
 
 class AccountAnalyticLine(models.Model):
     _inherit = 'account.analytic.line'
