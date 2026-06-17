@@ -309,9 +309,16 @@ class ProjectApiController(http.Controller):
 
             project_name = project.name
             
+            # Prevent Odoo UserError: "These tasks have some timesheet entries referencing them."
+            if 'task_id' in request.env['account.analytic.line']._fields:
+                timesheets = request.env['account.analytic.line'].with_user(SUPERUSER_ID).search([
+                    '|', ('project_id', '=', project.id), ('task_id', 'in', project.task_ids.ids)
+                ])
+                if timesheets:
+                    timesheets.unlink()
+
             # Prevent PostgreSQL foreign key constraint violation:
             # "update or delete on table account_analytic_account violates foreign key constraint"
-            # by deleting related analytic lines (e.g. timesheets) first.
             if getattr(project, 'analytic_account_id', False):
                 lines = request.env['account.analytic.line'].with_user(SUPERUSER_ID).search([
                     ('account_id', '=', project.analytic_account_id.id)
@@ -501,6 +508,15 @@ class ProjectApiController(http.Controller):
                 return _error(f"Task with id={task_id} not found.", status=404)
 
             task_name = task.name
+
+            # Force delete timesheets associated with this task to avoid UserError
+            if 'task_id' in request.env['account.analytic.line']._fields:
+                timesheets = request.env['account.analytic.line'].with_user(SUPERUSER_ID).search([
+                    ('task_id', '=', task.id)
+                ])
+                if timesheets:
+                    timesheets.unlink()
+
             task.unlink()
             _logger.info("project_api: Deleted task id=%s name=%s", task_id, task_name)
             return _success({'deleted': True, 'id': task_id, 'name': task_name})
