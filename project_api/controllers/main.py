@@ -319,12 +319,14 @@ class ProjectApiController(http.Controller):
 
             # Prevent PostgreSQL foreign key constraint violation:
             # "update or delete on table account_analytic_account violates foreign key constraint"
-            if getattr(project, 'analytic_account_id', False):
-                lines = request.env['account.analytic.line'].with_user(SUPERUSER_ID).search([
-                    ('account_id', '=', project.analytic_account_id.id)
-                ])
-                if lines:
-                    lines.unlink()
+            for field_name in ['analytic_account_id', 'account_id']:
+                account = getattr(project, field_name, False)
+                if account:
+                    lines = request.env['account.analytic.line'].with_user(SUPERUSER_ID).search([
+                        ('account_id', '=', account.id)
+                    ])
+                    if lines:
+                        lines.unlink()
 
             project.unlink()
             _logger.info("project_api: Deleted project id=%s name=%s", project_id, project_name)
