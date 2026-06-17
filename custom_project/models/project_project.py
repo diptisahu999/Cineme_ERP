@@ -228,9 +228,25 @@ class Project(models.Model):
     # ------------------------------------------------------------------
 
     def unlink(self):
-        # Before deleting the projects, delete their related project updates
-        # to avoid the foreign key constraint violation.
+        # 1. Delete related project updates to avoid FK constraint violation.
         updates = self.env['project.update'].search([('project_id', 'in', self.ids)])
         if updates:
             updates.unlink()
+
+        # 2. Delete related analytic lines (timesheets) linked to this project's
+        #    analytic account(s), to avoid the
+        #    account_analytic_line_account_id_fkey FK constraint violation.
+        analytic_account_ids = self.mapped('analytic_account_id').ids
+        if analytic_account_ids:
+            analytic_lines = self.env['account.analytic.line'].sudo().search([
+                ('account_id', 'in', analytic_account_ids)
+            ])
+            if analytic_lines:
+                _logger.info(
+                    "UNLINK: Deleting %d analytic line(s) for analytic accounts %s "
+                    "before removing project(s) %s.",
+                    len(analytic_lines), analytic_account_ids, self.ids
+                )
+                analytic_lines.unlink()
+
         return super(Project, self).unlink()
