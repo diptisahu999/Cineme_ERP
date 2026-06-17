@@ -228,58 +228,9 @@ class Project(models.Model):
     # ------------------------------------------------------------------
 
     def unlink(self):
-        project_ids = list(self.ids)
-
-        # 1. Delete related project updates to avoid FK constraint violation.
-        updates = self.env['project.update'].search([('project_id', 'in', project_ids)])
+        # Before deleting the projects, delete their related project updates
+        # to avoid the foreign key constraint violation.
+        updates = self.env['project.update'].search([('project_id', 'in', self.ids)])
         if updates:
             updates.unlink()
-
-        # 2. Direct SQL DELETE for analytic lines by project_id.
-        #    Bypasses ORM access rules — guarantees removal regardless of
-        #    user rights or missing field definitions.
-        self._cr.execute(
-            "DELETE FROM account_analytic_line WHERE project_id = ANY(%s)",
-            [project_ids]
-        )
-        _logger.info(
-            "UNLINK: Deleted %d analytic line(s) by project_id for project(s) %s.",
-            self._cr.rowcount, project_ids
-        )
-
-        # 3. Auto-detect every analytic-related column in project_project
-        #    (column name varies across Odoo 18 builds / installed modules)
-        #    and direct-DELETE analytic lines linked via those accounts.
-        #    This is what actually triggers account_analytic_line_account_id_fkey.
-        self._cr.execute("""
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_name = 'project_project'
-              AND column_name LIKE '%%analytic%%'
-        """)
-        analytic_cols = [row[0] for row in self._cr.fetchall()]
-        _logger.info(
-            "UNLINK: Analytic columns found in project_project: %s", analytic_cols
-        )
-
-        for col in analytic_cols:
-            # col comes from information_schema — safe to interpolate
-            self._cr.execute(
-                f"""
-                DELETE FROM account_analytic_line
-                WHERE account_id IN (
-                    SELECT {col}
-                    FROM project_project
-                    WHERE id = ANY(%s)
-                      AND {col} IS NOT NULL
-                )
-                """,
-                [project_ids]
-            )
-            deleted = self._cr.rowcount
-            if deleted:
-                _logger.info(
-                    "UNLINK: Deleted %d analytic line(s) via column '%s'.", deleted, col
-                )
-
         return super(Project, self).unlink()
