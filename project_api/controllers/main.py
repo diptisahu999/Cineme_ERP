@@ -9,7 +9,8 @@ Projects:
     GET    /api/projects/<project_id>     - Get a single project by ID
     POST   /api/projects                  - Create a new project
     PUT    /api/projects/<project_id>     - Update a project
-    DELETE /api/projects/<project_id>     - Delete a project
+    DELETE /api/projects/<project_id>     - Delete a project by ID
+    DELETE /api/projects?name=<name>      - Delete a project by exact name
 
 Tasks:
     GET    /api/tasks                     - List all tasks (filter: ?project_id=<id>)
@@ -331,6 +332,82 @@ class ProjectApiController(http.Controller):
             project.unlink()
             _logger.info("project_api: Deleted project id=%s name=%s", project_id, project_name)
             return _success({'deleted': True, 'id': project_id, 'name': project_name})
+
+        except Exception as e:
+            return _error(str(e), status=500)
+
+    # -----------------------------------------------------------------------
+
+    @http.route('/api/projects', type='http', auth='public', methods=['DELETE'], csrf=False)
+    def delete_project_by_name(self, **kwargs):
+        """
+        DELETE /api/projects?name=<project_name>
+        Deletes a project identified by its exact name.
+
+        Query params:
+            name  (required) - exact project name to delete
+            force (optional) - set to '1' to delete even when multiple projects
+                               share the same name (deletes ALL matches)
+
+        Examples:
+            DELETE /api/projects?name=CinemaProject
+            DELETE /api/projects?name=CinemaProject&force=1
+        """
+        try:
+            name = kwargs.get('name', '').strip()
+            if not name:
+                return _error("Query parameter 'name' is required.", status=400)
+
+            force = kwargs.get('force', '0') == '1'
+
+            # Search for projects matching the exact name (case-sensitive = '=', case-insensitive = 'ilike')
+            projects = request.env['project.project'].with_user(SUPERUSER_ID).search([
+                ('name', '=', name),
+            ])
+
+            if not projects:
+                return _error(f"No project found with name='{name}'.", status=404)
+
+            if len(projects) > 1 and not force:
+                return _error(
+                    f"Found {len(projects)} projects named '{name}'. "
+                    "Add '&force=1' to delete all of them, or use DELETE /api/projects/<id> to target one by ID.",
+                    status=409,
+                )
+
+            deleted_ids = []
+            for project in projects:
+                project_id = project.id
+                project_name = project.name
+
+                # Remove timesheets linked to the project or its tasks
+                if 'task_id' in request.env['account.analytic.line']._fields:
+                    timesheets = request.env['account.analytic.line'].with_user(SUPERUSER_ID).search([
+                        '|', ('project_id', '=', project_id), ('task_id', 'in', project.task_ids.ids)
+                    ])
+                    if timesheets:
+                        timesheets.unlink()
+
+                # Remove analytic lines tied to the project's analytic account
+                for field_name in ['analytic_account_id', 'account_id']:
+                    account = getattr(project, field_name, False)
+                    if account:
+                        lines = request.env['account.analytic.line'].with_user(SUPERUSER_ID).search([
+                            ('account_id', '=', account.id)
+                        ])
+                        if lines:
+                            lines.unlink()
+
+                project.unlink()
+                _logger.info("project_api: Deleted project id=%s name=%s (by name)", project_id, project_name)
+                deleted_ids.append(project_id)
+
+            return _success({
+                'deleted': True,
+                'name': name,
+                'deleted_ids': deleted_ids,
+                'count': len(deleted_ids),
+            })
 
         except Exception as e:
             return _error(str(e), status=500)
