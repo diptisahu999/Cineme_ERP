@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Extend the Department form to add a Delete button and remove Parent Department field -->
+    <record id="view_department_form_inherit_delete" model="ir.ui.view">
+        <field name="name">hr.department.form.inherit.delete</field>
+        <field name="model">hr.department</field>
+        <field name="inherit_id" ref="hr.view_department_form"/>
+        <field name="arch" type="xml">
+            <!-- Insert header BEFORE the sheet so it renders in the top status bar -->
+            <xpath expr="//sheet" position="before">
+                <header>
+                    <button name="action_delete_department"
+                            string="Delete Department"
+                            type="object"
+                            class="btn-danger"
+                            confirm="Are you sure you want to permanently delete this department? This action cannot be undone."
+                            groups="base.group_system"
+                            invisible="not id"/>
+                </header>
+            </xpath>
+            <!-- Replace Manager field (hr.employee, only 4) with manager_user_id (res.users, all internal users) -->
+            <xpath expr="//field[@name='manager_id']" position="replace">
+                <field name="manager_user_id"
+                       string="Manager"
+                       options="{'no_create': True, 'no_quick_create': True}"/>
+            </xpath>
+            <!-- Remove the Parent Department field from the form/quick-create dialog -->
+            <xpath expr="//field[@name='parent_id']" position="replace"/>
+            <!-- Replace "Employees N" smart button with "Users N" using res.users count -->
+            <xpath expr="//button[@name='action_employee_from_department']" position="replace">
+                <button class="oe_stat_button"
+                        icon="fa-users"
+                        type="object"
+                        name="action_department_users">
+                    <field name="user_count" widget="statinfo" string="Users"/>
+                </button>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Extend the Department list view to add a Delete button column and remove unwanted columns -->
+    <record id="view_department_list_inherit_delete" model="ir.ui.view">
+        <field name="name">hr.department.list.inherit.delete</field>
+        <field name="model">hr.department</field>
+        <field name="inherit_id" ref="hr.view_department_tree"/>
+        <field name="arch" type="xml">
+            <!-- Replace manager_id (hr.employee) with manager_user_id (res.users) in list column -->
+            <xpath expr="//field[@name='manager_id']" position="replace">
+                <field name="manager_user_id" string="Manager" readonly="1"/>
+            </xpath>
+            <!-- Remove Employees column -->
+            <xpath expr="//field[@name='total_employee']" position="replace"/>
+            <!-- Remove Parent Department column -->
+            <xpath expr="//field[@name='parent_id']" position="replace"/>
+            <!-- Add Delete button -->
+            <xpath expr="//list" position="inside">
+                <button name="action_delete_department"
+                        string="Delete"
+                        type="object"
+                        icon="fa-trash"
+                        class="btn-danger"
+                        confirm="Are you sure you want to permanently delete this department? This action cannot be undone."
+                        groups="base.group_system"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Override Department kanban to show user_count instead of total_employee -->
+    <record id="view_department_kanban_inherit_user_count" model="ir.ui.view">
+        <field name="name">hr.department.kanban.inherit.user.count</field>
+        <field name="model">hr.department</field>
+        <field name="inherit_id" ref="hr.hr_department_view_kanban"/>
+        <field name="arch" type="xml">
+            <!-- Replace manager_id avatar (hr.employee) with manager_user_id (res.users) -->
+            <xpath expr="//field[@name='manager_id']" position="replace">
+                <field name="manager_user_id" string="Manager" readonly="1" class="text-muted ms-2"/>
+            </xpath>
+            <!-- Replace the employee count button with user count -->
+            <xpath expr="//button[@name='action_employee_from_department']" position="replace">
+                <button class="btn btn-primary" type="object" name="action_department_users">
+                    <field name="user_count"/> Users
+                </button>
+            </xpath>
+        </field>
+    </record>
+</odoo>
+
+
+
