@@ -422,6 +422,7 @@ class ProjectApiController(http.Controller):
         GET /api/tasks
         Optional query params:
             ?project_id=<int>  - filter tasks by project
+            ?project_name=<str>- filter tasks by project name (ilike)
             ?name=<str>        - filter by task name (ilike)
             ?limit=<int>       - max records (default 100)
             ?offset=<int>      - pagination offset (default 0)
@@ -432,6 +433,10 @@ class ProjectApiController(http.Controller):
             project_id = kwargs.get('project_id')
             if project_id:
                 domain.append(('project_id', '=', int(project_id)))
+
+            project_name = kwargs.get('project_name')
+            if project_name:
+                domain.append(('project_id.name', 'ilike', project_name))
 
             name_filter = kwargs.get('name')
             if name_filter:
