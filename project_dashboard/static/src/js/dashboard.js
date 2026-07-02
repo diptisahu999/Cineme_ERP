@@ -12,6 +12,7 @@ import { Component, useState, onWillStart, xml, useEffect, useRef } from "@odoo/
 import { registry } from "@web/core/registry";
 import { rpc } from "@web/core/network/rpc";
 import { loadBundle } from "@web/core/assets";
+import { useService } from "@web/core/utils/hooks";
 
 // ─── Dashboard Component ──────────────────────────────────────────────────────
 export class ProjectDashboard extends Component {
@@ -214,9 +215,9 @@ export class ProjectDashboard extends Component {
                     </t>
                     <t t-foreach="state.data.project_list" t-as="proj" t-key="proj.id">
                         <tr class="pd-row">
-                            <td class="pd-td-name">
+                            <td class="pd-td-name" t-on-click="() => this.openProject(proj.id)" style="cursor: pointer;" title="Open Project">
                                 <span class="pd-proj-dot"/>
-                                <b t-esc="proj.name"/>
+                                <b t-esc="proj.name" style="color: #3182ce;"/>
                             </td>
                             <td class="pd-td-sec" t-esc="proj.customer || '—'"/>
                             <td class="pd-td-sec" t-esc="proj.manager || '—'"/>
@@ -249,6 +250,7 @@ export class ProjectDashboard extends Component {
 
     // ── Setup ─────────────────────────────────────────────────────────────────
     setup() {
+        this.actionService = useService("action");
         this.projectChartRef = useRef("projectChart");
         this.employeeChartRef = useRef("employeeChart");
         this.charts = { project: null, employee: null };
@@ -263,8 +265,8 @@ export class ProjectDashboard extends Component {
                 employee_id: ''
             },
             data: {
-                projects:     { total: 0, completed: 0, in_progress: 0, on_hold: 0 },
-                tasks:        { total: 0, done: 0, in_progress: 0, blocked: 0 },
+                projects: { total: 0, completed: 0, in_progress: 0, on_hold: 0 },
+                tasks: { total: 0, done: 0, in_progress: 0, blocked: 0 },
                 project_list: [],
             },
         });
@@ -281,15 +283,25 @@ export class ProjectDashboard extends Component {
         });
     }
 
+    openProject(projectId) {
+        this.actionService.doAction({
+            type: 'ir.actions.act_window',
+            res_model: 'project.project',
+            res_id: projectId,
+            views: [[false, 'form']],
+            target: 'current',
+        });
+    }
+
     renderCharts() {
         if (!window.Chart) return;
-        
+
         // 1. Project Donut Chart
         if (this.projectChartRef.el) {
             if (this.charts.project) this.charts.project.destroy();
             const ctx = this.projectChartRef.el.getContext('2d');
             const data = this.state.data.charts.project_analysis;
-            
+
             this.charts.project = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
@@ -307,13 +319,13 @@ export class ProjectDashboard extends Component {
                 }
             });
         }
-        
+
         // 2. Employee Bar Chart
         if (this.employeeChartRef.el) {
             if (this.charts.employee) this.charts.employee.destroy();
             const ctx = this.employeeChartRef.el.getContext('2d');
             const data = this.state.data.charts.employee_analysis;
-            
+
             this.charts.employee = new Chart(ctx, {
                 type: 'bar',
                 data: {
